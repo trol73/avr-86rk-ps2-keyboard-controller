@@ -1,0 +1,16 @@
+.equ CMD_SELECT_CODES_SET	= 0xF0
+
+.equ KEY_CTRL_L		= 0x11
+.equ KEY_SHIFT_L		= 0x12
+.equ KEY_CAPSLOCK		= 0x14
+.equ KEY_PRINTSCR		= 0x57
+.equ KEY_CTRL_R		= 0x58
+.equ KEY_SHIFT_R		= 0x59
+.equ KEY_SCROLLLOCK		= 0x5F
+.equ KEY_NUMLOCK		= 0x76
+
+
+.equ KEY_LED_SCROLL_LOCK		= 1
+.equ KEY_LED_NUM_LOCK		= 2
+.equ KEY_LED_CAPS_LOCK		= 4
+
