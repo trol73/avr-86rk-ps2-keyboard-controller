@@ -91,9 +91,10 @@ TIMER2_COMPA:		; Timer/Counter2 compare match A
 
 ; =============== S U B R O U T I N E =======================================
 
-; External Pin,	Power-on Reset,	Brown-out
+.use r16 as r16_mask
 
-		; public __RESET
+
+
 __RESET:				; CODE XREF: ROM:0000j
 	; Setup stack, SP = 0x2ff
 	io[SPL] = r18 = 0xff
@@ -150,18 +151,21 @@ keyboard_reset:					; CODE XREF: __RESET+1Cj
 	; Команда 0xF8 - Разрешить для всех клавиш посылку кодов нажатия и отпускания
 	rcall	send_command_to_keyboard (0xF8)
 		
-	r16 = 0
+	r16_mask = 0
+	//    r16[1] - признак отпускания кнопки
+	//    r16[4] - SHIFT
+	//    r16[5] - CTRL
 
-loc_43:					; CODE XREF: __RESET+2Dj __RESET+89j ...
+wait_next_char_code:					; CODE XREF: __RESET+2Dj __RESET+89j ...
 	rcall	sub_11D		; выводит PORTB = 0xff и заполняет память
 
 ; начало цикла функции main()
 main_loop:					; CODE XREF: __RESET+31j __RESET+41j ...
-	rcall	read_keyboard		; приём байта от клавиатуры в r21
-	if (r21 == 0) goto loc_43	; если ничего не нажато, читаем заново
+	rcall	read_keyboard					; приём байта от клавиатуры в r21
+	if (r21 == 0) goto wait_next_char_code		; если ничего не нажато, читаем заново
 
-	if (r21 == 0xf0) {	 		; F0 - код отпускания
-		r16 |= 2				; r16[1] - признак отпускания клавиши
+	if (r21 == KEY_RELEASE_CODE) {
+		r16_mask[1] = 1				; r16[1] - признак отпускания клавиши
 		rjmp	main_loop
 	}
 	if (r21 == KEY_CTRL_R) {
@@ -170,13 +174,13 @@ main_loop:					; CODE XREF: __RESET+31j __RESET+41j ...
 	if (r21 == KEY_SHIFT_R) {
 		r21 = KEY_SHIFT_L
 	}
-	if (r21 == 0x84) {	; 'Keypad -'
-		r21 = 9
+	if (r21 == KEY_KEYPAD_MINUS) {
+		r21 = 9	; F10 ??
 	}
-	if (r21 >= 0x8b) {	; 'L-WIN'
+	if (r21 >= KEY_WIN_L) {
 		r21 -= 0x81
 	}
-	if (!r16[1]) {		; если не нажат shift (?)
+	if (!r16_mask[1]) {		; если кнопка была нажата а не отпущена
 		if (r5 == r21) goto main_loop		; если эта же самая кнопка была нажата ранее, то игнорируем её
 		r5 = r21
 		if (r21 == KEY_PRINTSCR) {
@@ -196,7 +200,7 @@ enable_led_and_continue:
 		}
 	
 		if (r21 == KEY_SHIFT_L) {
-			r16 |= 0b00010000	;  r16[4] - SHIFT
+			r16_mask[4] = 1		;  r16[4] - SHIFT
 			rjmp	loc_A3
 		}
 		if (r21 == KEY_NUMLOCK) {
@@ -212,7 +216,7 @@ enable_led_and_continue:
 		}
 		if (r21 == KEY_CTRL_L) {
 			io[PORTC].US_PIN = 0
-			r16 |= 0b00100000		; r16[5] - CTRL
+			r16_mask[5] = 1			; r16[5] - CTRL
 			rjmp	loc_A3
 		}
 		X = data_array_2
@@ -225,13 +229,13 @@ loop_7F:
 		if (!r26[3]) goto loop_7F
 		rjmp	main_loop
 	}
-	r16 &= 0b11111101		; очищаем маску нажатия шифта
+	r16_mask[1] = 0				; очищаем флаг отпускания клавиши
 	if (r21 == KEY_SHIFT_L) {
-		r16 |= 1				; r16[1] - SHIFT
+		r16_mask[0] = 1
 		rjmp	loc_A3
 	}
 	if (r21 == KEY_CTRL_L) {
-		r16 &= 0b11011111
+		r16_mask[5] = 0
 		io[PORTC].US_PIN = 1		; Клавиша 'УС'
 		rjmp	loc_A3
 	}
@@ -240,26 +244,26 @@ loop_7F:
 		rjmp	loc_A3
 	}
 	X = data_array_2
-	r16 |= 4
+	r16_mask[2] = 1
 
 loc_98:					; CODE XREF: __RESET+87j
 	r18 = ram[X++]
 	if (r18 == r21) {
 		ram[--X] = r5 = 0
-		r16 &= 0b11111011
+		r16_mask[2] = 0
 		r26++
 	}
 	if (!r26[3]) goto loc_98
-	if (r16[2]) goto loc_43
+	if (r16_mask[2]) goto wait_next_char_code
 
 loc_A3:
-	X = 0x08
+	X = 0x08				; PORTC -> PIND -> DDRD
 
-loc_A5:					; CODE XREF: __RESET+8Ej
+loop_A5:					; CODE XREF: __RESET+8Ej
 	ram[X++] = r3
-	if (!r26[4]) goto loc_A5
-	r16 &= 0b10111111
-	r16 &= 0b11110111		; TODO !!!	
+	if (!r26[4]) goto loop_A5
+	r16_mask[6] = 0
+	r16_mask[3] = 0		; TODO !!!	
 	X = data_array_2
 loc_AC:					; CODE XREF: __RESET+9Fj
 	r18 = ram[X++]
@@ -271,9 +275,9 @@ loc_AC:					; CODE XREF: __RESET+9Fj
 		rcall	sub_E4 (prg[Z])
 	}
 	if (!r26[3]) goto loc_AC
-	if (!r16[3]) {
+	if (!r16_mask[3]) {
 		rcall	sub_E6
-		if (!r16[4]) goto loc_43
+		if (!r16_mask[4]) goto wait_next_char_code
 	}
 	Z = 0x100
 
@@ -291,12 +295,12 @@ loop_C0:					; CODE XREF: __RESET+BAj
 	ZL++
 	if (!F_ZERO) goto loop_C0
 
-	io[PORTC].SS_PIN = !r16[4]		; Клавиша 'СС'
-	if (r16[6]) {
-		io[PORTC].US_PIN = 0		; Клавиша 'УС'
+	io[PORTC].SS_PIN = !r16_mask[4]		; Клавиша 'СС'
+	if (r16_mask[6]) {
+		io[PORTC].US_PIN = 0			; Клавиша 'УС'
 		rjmp	main_loop
 	}
-	io[PORTC].US_PIN = !r16[5]		; Клавиша 'УС'
+	io[PORTC].US_PIN = !r16_mask[5]		; Клавиша 'УС'
 	r28 = io[PIND]
 	io[PORTB] = r18 = ram[Y]
 	rjmp	main_loop
@@ -314,9 +318,9 @@ loop_C0:					; CODE XREF: __RESET+BAj
 
 
 sub_E6:					; CODE XREF: __RESET+A2p
-	if (!r16[0]) ret
-	r16 &= 0b11111110
-	r16 &= 0b11101111
+	if (!r16_mask[0]) ret
+	r16_mask[0] = 0
+	r16_mask[4] = 0
 	io[PORTC].SS_PIN = 1		; Клавиша 'СС'
 	ret
 ; End of function sub_E6
@@ -329,7 +333,7 @@ loc_EC:					; CODE XREF: sub_E4+1j
 		if (r0[6]) goto loc_F5
 	}
 	rcall	sub_E6
-	if (r16[4]) r16 |= 0b00010000
+	if (r16_mask[4]) r16_mask[4] = 1		; WTF !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! ?!?!?!? if (r16[4] == 1) r16[4] := 1 
 	rjmp	loc_100
 ; ---------------------------------------------------------------------------
 
@@ -339,15 +343,15 @@ loc_F5:					; CODE XREF: sub_E4+Cj
 	Z = 0x500
 	ZL += r18
 	r0 = prg[Z]
-	if (r16[4]) {
+	if (r16_mask[4]) {		; r16[4] - SHIFT
 		ZL++
 		r0 = prg[Z]
 	}
 loc_100:
 	push	r27 r26
-	r16 |= 8
-	if (r0[7]) r16 |= 0b01000000
-	if (r0[6]) r16 |= 0b00010000
+	r16_mask[3] = 1
+	if (r0[7]) r16_mask[6] = 1
+	if (r0[6]) r16_mask[4] = 1
 	r18 = r0 & 0b00000111
 	r1 = r18 + 1
 	r18 = 0xFE
@@ -373,7 +377,7 @@ loc_100:
 ; =============== S U B R O U T I N E =======================================
 
 
-.proc sub_11D				; CODE XREF: __RESET:loc_43p
+.proc sub_11D
 	cli
 	io[PORTB] = r18 = 0xff
 	
@@ -490,12 +494,11 @@ loc_100:
 ;		io[PORTC].DAT_PIN = !F_CARRY
 		if (!F_CARRY) {
 			io[PORTC].DAT_PIN = 0
-			rjmp	@bits_loop_continue
+		} else {
+			io[PORTC].DAT_PIN = 1
+			r2++
 		}
-		io[PORTC].DAT_PIN = 1
-		r2++
 
-@bits_loop_continue:
 		wait_CLK_1
 	}
 

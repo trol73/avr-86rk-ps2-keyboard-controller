@@ -1,5 +1,8 @@
 .equ CMD_SELECT_CODES_SET	= 0xF0
 
+
+.equ KEY_RELEASE_CODE    = 0xf0
+
 .equ KEY_CTRL_L		= 0x11
 .equ KEY_SHIFT_L		= 0x12
 .equ KEY_CAPSLOCK		= 0x14
@@ -8,6 +11,8 @@
 .equ KEY_SHIFT_R		= 0x59
 .equ KEY_SCROLLLOCK		= 0x5F
 .equ KEY_NUMLOCK		= 0x76
+.equ KEY_KEYPAD_MINUS	= 0x84
+.equ KEY_WIN_L			= 0x8b
 
 
 .equ KEY_LED_SCROLL_LOCK		= 1
