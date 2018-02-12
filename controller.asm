@@ -63,13 +63,13 @@ PCINT1_:		; Pin change interrupt request 1
 		reti
 
 PCINT2_:		; Pin change interrupt request 2
-		r28 = io[PIND]
+		YL = io[PIND]	; адрес KA0 - KA7
 
-WDT:		; Watchdog time-out interrupt
+;WDT:		; Watchdog time-out interrupt
 		r20 = ram[Y]
 
-TIMER2_COMPA:		; Timer/Counter2 compare match A
-		io[PORTB] = r20
+;TIMER2_COMPA:		; Timer/Counter2 compare match A
+		io[PORTB] = r20	; KD0 - KD7
 		
 		reti
 		reti
@@ -201,7 +201,7 @@ enable_led_and_continue:
 	
 		if (r21 == KEY_SHIFT_L) {
 			r16_mask[4] = 1		;  r16[4] - SHIFT
-			rjmp	loc_A3
+			rjmp	prepare_response
 		}
 		if (r21 == KEY_NUMLOCK) {
 			r21 = r17
@@ -217,31 +217,31 @@ enable_led_and_continue:
 		if (r21 == KEY_CTRL_L) {
 			io[PORTC].US_PIN = 0
 			r16_mask[5] = 1			; r16[5] - CTRL
-			rjmp	loc_A3
+			rjmp	prepare_response
 		}
 		X = data_array_2
 loop_7F:
 		r18 = ram[X++]
 		if (r18 == 0) {
 			ram[--X] = r21
-			rjmp	loc_A3
+			rjmp	prepare_response
 		}
-		if (!r26[3]) goto loop_7F
+		if (!XL[3]) goto loop_7F
 		rjmp	main_loop
 	}
 	r16_mask[1] = 0				; очищаем флаг отпускания клавиши
 	if (r21 == KEY_SHIFT_L) {
 		r16_mask[0] = 1
-		rjmp	loc_A3
+		rjmp	prepare_response
 	}
 	if (r21 == KEY_CTRL_L) {
 		r16_mask[5] = 0
 		io[PORTC].US_PIN = 1		; Клавиша 'УС'
-		rjmp	loc_A3
+		rjmp	prepare_response
 	}
 	if (r21 == KEY_CAPSLOCK) {
 		io[PORTC].RUS_LAT_PIN = 1
-		rjmp	loc_A3
+		rjmp	prepare_response
 	}
 	X = data_array_2
 	r16_mask[2] = 1
@@ -251,17 +251,18 @@ loc_98:					; CODE XREF: __RESET+87j
 	if (r18 == r21) {
 		ram[--X] = r5 = 0
 		r16_mask[2] = 0
-		r26++
+		XL++
 	}
-	if (!r26[3]) goto loc_98
+	if (!XL[3]) goto loc_98
 	if (r16_mask[2]) goto wait_next_char_code
 
-loc_A3:
-	X = 0x08				; PORTC -> PIND -> DDRD
+prepare_response:
+	X = 0x08
 
-loop_A5:					; CODE XREF: __RESET+8Ej
+loop_fill_registers_data:
 	ram[X++] = r3
-	if (!r26[4]) goto loop_A5
+	if (!XL[4]) goto loop_fill_registers_data
+	
 	r16_mask[6] = 0
 	r16_mask[3] = 0		; TODO !!!	
 	X = data_array_2
@@ -272,25 +273,26 @@ loc_AC:					; CODE XREF: __RESET+9Fj
 		Z = 0x400
 		ZL += r18
 		if (r17[0]) ZL++
-		rcall	sub_E4 (prg[Z])
+		rcall	process_table_code (prg[Z])
 	}
-	if (!r26[3]) goto loc_AC
+	if (!XL[3]) goto loc_AC
 	if (!r16_mask[3]) {
 		rcall	sub_E6
 		if (!r16_mask[4]) goto wait_next_char_code
 	}
+	
+	// вычисление байта KD0 - KD7 для всех возможных KA0 - KA7
 	Z = 0x100
-
 loop_C0:					; CODE XREF: __RESET+BAj
 	r19 = 0xff
-	if (!r30[0]) r19 &= r8
-	if (!r30[1]) r19 &= r9
-	if (!r30[2]) r19 &= r10
-	if (!r30[3]) r19 &= r11
-	if (!r30[4]) r19 &= r12
-	if (!r30[5]) r19 &= r13
-	if (!r30[6]) r19 &= r14
-	if (!r30[7]) r19 &= r15
+	if (!ZL[0]) r19 &= r8
+	if (!ZL[1]) r19 &= r9
+	if (!ZL[2]) r19 &= r10
+	if (!ZL[3]) r19 &= r11
+	if (!ZL[4]) r19 &= r12
+	if (!ZL[5]) r19 &= r13
+	if (!ZL[6]) r19 &= r14
+	if (!ZL[7]) r19 &= r15
 	ram[Z] = r19
 	ZL++
 	if (!F_ZERO) goto loop_C0
@@ -301,7 +303,7 @@ loop_C0:					; CODE XREF: __RESET+BAj
 		rjmp	main_loop
 	}
 	io[PORTC].US_PIN = !r16_mask[5]		; Клавиша 'УС'
-	r28 = io[PIND]
+	YL = io[PIND]
 	io[PORTB] = r18 = ram[Y]
 	rjmp	main_loop
 ; End of function __RESET
@@ -309,13 +311,9 @@ loop_C0:					; CODE XREF: __RESET+BAj
 
 
 
-.proc sub_E4 (v: r0)
-	r0++
-	if (!F_ZERO) goto loc_EC
-.endproc
-
-; =============== S U B R O U T I N E =======================================
-
+.proc process_table_code (code: r0)
+	code++
+	if (!F_ZERO) goto @not_ff_code
 
 sub_E6:					; CODE XREF: __RESET+A2p
 	if (!r16_mask[0]) ret
@@ -323,36 +321,35 @@ sub_E6:					; CODE XREF: __RESET+A2p
 	r16_mask[4] = 0
 	io[PORTC].SS_PIN = 1		; Клавиша 'СС'
 	ret
-; End of function sub_E6
 
-; ---------------------------------------------------------------------------
-
-loc_EC:					; CODE XREF: sub_E4+1j
-	r0--
-	if (r0[7]) {
-		if (r0[6]) goto loc_F5
+@not_ff_code:
+	code--
+	; Для клавиш IBM клавиатуры, которые в зависимости от нажатия Shift имеют разные коды, предусмотрено переключение таблицы на дополнительную, 
+	; признаком этого является d7, d6=1.
+	if (code[7]) {
+		if (code[6]) goto @two_codes_key
 	}
 	rcall	sub_E6
 	if (r16_mask[4]) r16_mask[4] = 1		; WTF !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! ?!?!?!? if (r16[4] == 1) r16[4] := 1 
 	rjmp	loc_100
 ; ---------------------------------------------------------------------------
 
-loc_F5:					; CODE XREF: sub_E4+Cj
-	r18 = r0 & 0b00111111
+@two_codes_key:
+	r18 = code & 0b00111111
 	r18 <<= 1
 	Z = 0x500
 	ZL += r18
-	r0 = prg[Z]
+	code = prg[Z]
 	if (r16_mask[4]) {		; r16[4] - SHIFT
 		ZL++
-		r0 = prg[Z]
+		code = prg[Z]
 	}
 loc_100:
-	push	r27 r26
+	push	XH XL
 	r16_mask[3] = 1
-	if (r0[7]) r16_mask[6] = 1
-	if (r0[6]) r16_mask[4] = 1
-	r18 = r0 & 0b00000111
+	if (code[7]) r16_mask[6] = 1
+	if (code[6]) r16_mask[4] = 1
+	r18 = code & 0b00000111
 	r1 = r18 + 1
 	r18 = 0xFE
 
@@ -364,15 +361,15 @@ loc_100:
 	}
 
 	XH = 0
-	XL = r0
+	XL = code
 	XL <<= 1
 	swap	XL
 	XL &= 0b00000111
 	XL -= 0b11111000
 	ram[X] = r1 = ram[X] & r18
-	pop	r26 r27
+	pop	XL XH
 	ret
-; END OF FUNCTION CHUNK	FOR sub_E4
+.endproc
 
 ; =============== S U B R O U T I N E =======================================
 
@@ -397,13 +394,13 @@ loc_100:
 	if (!F_ZERO) goto @loop_2
 	
 	r5 = 0
-	r29 = 1
+	YH = 1	; Y адресует массив data_array_1
 	sei
 	ret
 .endproc
 
 
-; =============== S U B R O U T I N E =======================================
+
 ; При передаче используется следующий протокол: сначала передается старт-бит (всегда "0"), затем восемь бит данных, 
 ; один бит проверки на нечетность и один стоп-бит (всегда "1"). Данные должны считываться в тот момент, когда синхросигнал 
 ; имеет низкое значение. Формирование синхросигнала осуществляет клавиатура. 
